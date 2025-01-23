@@ -1,6 +1,6 @@
 ﻿namespace Basket.API.Test;
 
-public class Tests
+public class CheckoutBasketEndpointTests
 {
     [SetUp]
     public void Setup()
