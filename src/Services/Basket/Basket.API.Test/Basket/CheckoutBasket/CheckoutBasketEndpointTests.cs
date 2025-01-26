@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace Basket.API.Tests.Basket.CheckoutBasket
 {
-    public class CheckoutBasketEndpointTests
+    public class CheckoutBasketEndpointTestsTests
     {
         private readonly ISender _sender;
         private readonly CheckoutBasketEndpoint _endpoint;
