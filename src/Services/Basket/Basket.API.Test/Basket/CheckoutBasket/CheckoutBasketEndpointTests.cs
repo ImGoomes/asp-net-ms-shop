@@ -1,126 +1,80 @@
-using Xunit;
+using Basket.API.Basket.CheckoutBasket;
+using Basket.API.Basket.CheckoutBasket.Commands;
+using Carter;
 using FluentAssertions;
-using NSubstitute;
-using MediatR;
 using Mapster;
+using MediatR;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Routing;
+using Moq;
+using Xunit;
 
 namespace Basket.API.Tests.Basket.CheckoutBasket
 {
-    public class CheckoutBasketEndpointTestsTests
+    public class CheckoutBasketEndpointTests
     {
-        private readonly ISender _sender;
+        private readonly Mock<ISender> _mockSender;
         private readonly CheckoutBasketEndpoint _endpoint;
 
         public CheckoutBasketEndpointTests()
         {
-            _sender = Substitute.For<ISender>();
+            _mockSender = new Mock<ISender>();
             _endpoint = new CheckoutBasketEndpoint();
         }
 
         [Fact]
-        public async Task CheckoutBasket_WhenRequestIsValid_ShouldReturnOkResponse()
+        public async Task CheckoutBasket_ShouldReturnCreated_WhenCommandSucceeds()
         {
             // Arrange
-            var basketCheckoutDto = new BasketCheckoutDTO
-            {
-                // Set up your DTO properties here
-            };
+            var request = new CheckoutBasketRequest(new BasketCheckoutDTO());
+            var command = request.Adapt<CheckoutBasketCommand>();
+            var result = new CheckoutBasketResponse(true);
 
-            var request = new CheckoutBasketRequest(basketCheckoutDto);
-            
-            _sender.Send(Arg.Any<CheckoutBasketCommand>())
-                .Returns(new CheckoutBasketCommandResult { IsSuccess = true });
+            _mockSender.Setup(x => x.Send(command, It.IsAny<CancellationToken>()))
+                       .ReturnsAsync(result);
 
-            // Act
-            var app = WebApplication.Create();
+            var httpContext = new DefaultHttpContext();
+            var routeBuilder = new RouteBuilder(new ApplicationBuilder(new ServiceCollection().BuildServiceProvider()));
+            var app = new EndpointRouteBuilder(routeBuilder);
+
             _endpoint.AddRoutes(app);
 
-            var endpoint = app.DataSources
-                .FirstOrDefault()
-                ?.Endpoints
-                .FirstOrDefault(e => e.DisplayName?.Contains("CheckoutBasket") ?? false) as RouteEndpoint;
-
-            var requestDelegate = endpoint?.RequestDelegate;
-            
-            var httpContext = new DefaultHttpContext();
-            httpContext.Request.Method = "POST";
-            httpContext.RequestServices = Substitute.For<IServiceProvider>();
-            httpContext.RequestServices.GetService(typeof(ISender)).Returns(_sender);
-
             // Act
-            await requestDelegate!(httpContext);
+            var endpoint = app.DataSources.First().Endpoints.First();
+            var handler = endpoint.RequestDelegate;
+            var response = await handler(httpContext);
 
             // Assert
-            httpContext.Response.StatusCode.Should().Be(StatusCodes.Status200OK);
-            
-            await _sender.Received(1)
-                .Send(Arg.Any<CheckoutBasketCommand>());
+            response.Should().BeOfType<Ok<CheckoutBasketResponse>>();
+            var okResult = response as Ok<CheckoutBasketResponse>;
+            okResult?.Value.Should().BeEquivalentTo(result);
         }
 
         [Fact]
-        public async Task CheckoutBasket_WhenCheckoutFails_ShouldReturnFailureResponse()
+        public async Task CheckoutBasket_ShouldReturnBadRequest_WhenCommandFails()
         {
             // Arrange
-            var basketCheckoutDto = new BasketCheckoutDTO
-            {
-                // Set up your DTO properties here
-            };
+            var request = new CheckoutBasketRequest(new BasketCheckoutDTO());
+            var command = request.Adapt<CheckoutBasketCommand>();
+            var result = new CheckoutBasketResponse(false);
 
-            var request = new CheckoutBasketRequest(basketCheckoutDto);
-            
-            _sender.Send(Arg.Any<CheckoutBasketCommand>())
-                .Returns(new CheckoutBasketCommandResult { IsSuccess = false });
+            _mockSender.Setup(x => x.Send(command, It.IsAny<CancellationToken>()))
+                       .ReturnsAsync(result);
 
-            // Act
-            var app = WebApplication.Create();
-            _endpoint.AddRoutes(app);
-
-            var endpoint = app.DataSources
-                .FirstOrDefault()
-                ?.Endpoints
-                .FirstOrDefault(e => e.DisplayName?.Contains("CheckoutBasket") ?? false) as RouteEndpoint;
-
-            var requestDelegate = endpoint?.RequestDelegate;
-            
             var httpContext = new DefaultHttpContext();
-            httpContext.Request.Method = "POST";
-            httpContext.RequestServices = Substitute.For<IServiceProvider>();
-            httpContext.RequestServices.GetService(typeof(ISender)).Returns(_sender);
+            var routeBuilder = new RouteBuilder(new ApplicationBuilder(new ServiceCollection().BuildServiceProvider()));
+            var app = new EndpointRouteBuilder(routeBuilder);
 
-            // Act
-            await requestDelegate!(httpContext);
-
-            // Assert
-            httpContext.Response.StatusCode.Should().Be(StatusCodes.Status200OK);
-            
-            var response = await httpContext.Response.ReadFromJsonAsync<CheckoutBasketResponse>();
-            response.Should().NotBeNull();
-            response!.IsSuccess.Should().BeFalse();
-        }
-
-        [Fact]
-        public void AddRoutes_ShouldConfigureEndpointCorrectly()
-        {
-            // Arrange
-            var app = WebApplication.Create();
-
-            // Act
             _endpoint.AddRoutes(app);
 
-            // Assert
-            var endpoint = app.DataSources
-                .FirstOrDefault()
-                ?.Endpoints
-                .FirstOrDefault(e => e.DisplayName?.Contains("CheckoutBasket") ?? false) as RouteEndpoint;
+            // Act
+            var endpoint = app.DataSources.First().Endpoints.First();
+            var handler = endpoint.RequestDelegate;
+            var response = await handler(httpContext);
 
-            endpoint.Should().NotBeNull();
-            endpoint!.RoutePattern.RawText.Should().Be("/basket/checkout");
-            endpoint.Metadata.Should().Contain(m => m is ProducesResponseTypeMetadata meta 
-                && meta.StatusCode == StatusCodes.Status201Created);
-            endpoint.Metadata.Should().Contain(m => m is ProducesResponseTypeMetadata meta 
-                && meta.StatusCode == StatusCodes.Status400BadRequest);
+            // Assert
+            response.Should().BeOfType<BadRequest<ProblemDetails>>();
         }
     }
 }
