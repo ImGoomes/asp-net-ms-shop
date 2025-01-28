@@ -4,7 +4,6 @@ using Basket.API.DTOs;
 using Basket.API.Models;
 using BuildingBlocks.Messaging.Events;
 using FluentAssertions;
-using FluentValidation;
 using MassTransit;
 using Moq;
 

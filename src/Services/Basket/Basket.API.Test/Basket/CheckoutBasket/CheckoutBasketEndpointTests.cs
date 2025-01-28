@@ -1,89 +1,94 @@
+using System.Net;
+using System.Net.Http.Json;
 using Basket.API.Basket.CheckoutBasket;
-using Basket.API.Data;
 using Basket.API.DTOs;
-using Basket.API.Models;
-using BuildingBlocks.Messaging.Events;
 using FluentAssertions;
-using FluentValidation;
-using FluentValidation.Results;
-using MassTransit;
+using MediatR;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.VisualStudio.TestPlatform.TestHost;
 using Moq;
-using Xunit;
 
-namespace Basket.API.Tests.Basket.CheckoutBasket
+namespace Basket.API.Tests.Basket.CheckoutBasket;
+
+public class CheckoutBasketEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 {
-    public class CheckoutBasketCommandHandlerTests
+    private readonly WebApplicationFactory<Program> _factory;
+    private readonly Mock<ISender> _mockSender;
+
+    public CheckoutBasketEndpointTests()
     {
-        private readonly Mock<IBasketRepository> _mockBasketRepository;
-        private readonly Mock<IPublishEndpoint> _mockPublishEndpoint;
-        private readonly CheckoutBasketCommandHandler _handler;
+        _mockSender = new Mock<ISender>();
+        _factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureServices(services =>
+                {
+                    // Replace ISender with the mock
+                    services.AddSingleton(_mockSender.Object);
+                });
+            });
+    }
 
-        public CheckoutBasketCommandHandlerTests()
-        {
-            _mockBasketRepository = new Mock<IBasketRepository>();
-            _mockPublishEndpoint = new Mock<IPublishEndpoint>();
-            _handler = new CheckoutBasketCommandHandler(_mockBasketRepository.Object, _mockPublishEndpoint.Object);
-        }
+    [Fact]
+    public async Task CheckoutBasket_ShouldReturnOk_WhenCommandIsSuccessful()
+    {
+        // Arrange
+        var request = new CheckoutBasketRequest(new BasketCheckoutDTO() { Username = "user_x" });
+        var commandResult = new CheckoutBasketResult(true);
 
-        [Fact]
-        public async Task Handle_ShouldReturnSuccess_WhenBasketExists()
-        {
-            // Arrange
-            var basketCheckoutDto = new BasketCheckoutDTO { Username = "testuser" };
-            var command = new CheckoutBasketCommand(basketCheckoutDto);
-            var basket = new ShoppingCart("testuser");
+        _mockSender
+            .Setup(x => x.Send(It.IsAny<CheckoutBasketCommand>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(commandResult);
 
-            _mockBasketRepository.Setup(x => x.GetBasket("testuser", It.IsAny<CancellationToken>()))
-                                .ReturnsAsync(basket);
+        var client = _factory.CreateClient();
 
-            _mockBasketRepository.Setup(x => x.DeleteBasket("testuser", It.IsAny<CancellationToken>()))
-                .ReturnsAsync(true);
-            
-            _mockPublishEndpoint.Setup(x => x.Publish(It.IsAny<BasketCheckoutEvent>(), It.IsAny<CancellationToken>()))
-                               .Returns(Task.CompletedTask);
+        // Act
+        var response = await client.PostAsJsonAsync("/basket/checkout", request);
 
-            // Act
-            var result = await _handler.Handle(command, CancellationToken.None);
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var responseBody = await response.Content.ReadFromJsonAsync<CheckoutBasketResponse>();
+        responseBody.Should().NotBeNull();
+        responseBody!.IsSuccess.Should().BeTrue();
+        _mockSender.Verify(x => x.Send(It.IsAny<CheckoutBasketCommand>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
 
-            // Assert
-            result.IsSuccess.Should().BeTrue();
-            _mockBasketRepository.Verify(x => x.GetBasket("testuser", It.IsAny<CancellationToken>()), Times.Once);
-            _mockBasketRepository.Verify(x => x.DeleteBasket("testuser", It.IsAny<CancellationToken>()), Times.Once);
-            _mockPublishEndpoint.Verify(x => x.Publish(It.IsAny<BasketCheckoutEvent>(), It.IsAny<CancellationToken>()), Times.Once);
-        }
+    [Fact]
+    public async Task CheckoutBasket_ShouldReturnBadRequest_WhenCommandFailsValidation()
+    {
+        // Arrange
+        var request = new CheckoutBasketRequest(new BasketCheckoutDTO { Username = "" }); // Invalid username
+        var client = _factory.CreateClient();
 
-        [Fact]
-        public async Task Handle_ShouldReturnFailure_WhenBasketDoesNotExist()
-        {
-            // Arrange
-            var basketCheckoutDto = new BasketCheckoutDTO { Username = "testuser" };
-            var command = new CheckoutBasketCommand(basketCheckoutDto);
+        // Act
+        var response = await client.PostAsJsonAsync("/basket/checkout", request);
 
-            _mockBasketRepository.Setup(x => x.GetBasket("testuser", It.IsAny<CancellationToken>()))
-                                .ReturnsAsync((ShoppingCart)null);
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
 
-            // Act
-            var result = await _handler.Handle(command, CancellationToken.None);
+    [Fact]
+    public async Task CheckoutBasket_ShouldReturnOk_WhenBasketDoesNotExist()
+    {
+        // Arrange
+        var request = new CheckoutBasketRequest(new BasketCheckoutDTO { Username = "user_non" });
+        var commandResult = new CheckoutBasketResult(false);
 
-            // Assert
-            result.IsSuccess.Should().BeFalse();
-            _mockBasketRepository.Verify(x => x.GetBasket("testuser", It.IsAny<CancellationToken>()), Times.Once);
-            _mockBasketRepository.Verify(x => x.DeleteBasket(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
-            _mockPublishEndpoint.Verify(x => x.Publish(It.IsAny<BasketCheckoutEvent>(), It.IsAny<CancellationToken>()), Times.Never);
-        }
+        _mockSender
+            .Setup(x => x.Send(It.IsAny<CheckoutBasketCommand>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(commandResult);
 
-        [Fact]
-        public async Task Handle_ShouldThrowValidationException_WhenCommandIsInvalid()
-        {
-            // Arrange
-            var basketCheckoutDto = new BasketCheckoutDTO { Username = "" }; // Invalid username
-            var command = new CheckoutBasketCommand(basketCheckoutDto);
-            var validator = new CheckoutBasketCommandValidator();
+        var client = _factory.CreateClient();
 
-            // Act & Assert
-            var validationResult = await validator.ValidateAsync(command);
-            validationResult.IsValid.Should().BeFalse();
-            validationResult.Errors.Should().Contain(x => x.ErrorMessage == "Username is required");
-        }
+        // Act
+        var response = await client.PostAsJsonAsync("/basket/checkout", request);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var responseBody = await response.Content.ReadFromJsonAsync<CheckoutBasketResponse>();
+        responseBody.Should().NotBeNull();
+        responseBody!.IsSuccess.Should().BeFalse();
+        _mockSender.Verify(x => x.Send(It.IsAny<CheckoutBasketCommand>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 }
