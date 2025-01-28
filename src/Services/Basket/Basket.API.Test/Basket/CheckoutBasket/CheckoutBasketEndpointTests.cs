@@ -9,7 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestPlatform.TestHost;
 using Moq;
 
-namespace Basket.API.Tests.Basket.CheckoutBasket;
+namespace Basket.API.Test.Basket.CheckoutBasket;
 
 public class CheckoutBasketEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 {

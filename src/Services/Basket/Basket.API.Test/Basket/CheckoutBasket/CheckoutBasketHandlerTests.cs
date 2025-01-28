@@ -7,7 +7,7 @@ using FluentAssertions;
 using MassTransit;
 using Moq;
 
-namespace Basket.API.Tests.Basket.CheckoutBasket;
+namespace Basket.API.Test.Basket.CheckoutBasket;
 
 public class CheckoutBasketHandlerTests
 {
